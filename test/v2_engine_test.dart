@@ -180,6 +180,11 @@ void main() {
         plaintext: 'guruh xabari',
         epoch: epoch,
       );
+      final metadata = engine.group.inspect(payload);
+      expect(metadata, isNotNull);
+      expect(metadata!.conversationId, conversation.id);
+      expect(metadata.conversationType, conversation.type);
+      expect(metadata.epochId, epoch.epochId);
       final result = await engine.group.decrypt(
         conversation: conversation,
         payload: payload,

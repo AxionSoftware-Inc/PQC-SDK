@@ -34,7 +34,7 @@ dependencies:
   pqc_engine_sdk:
     git:
       url: git@github.com:AxionSoftware-Inc/PQC-SDK.git
-      ref: v0.1.0-dev.2
+      ref: v0.1.0-dev.3
 ```
 
 For paid distribution, grant repository access to licensed customers or

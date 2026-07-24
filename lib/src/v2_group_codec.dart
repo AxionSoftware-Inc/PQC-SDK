@@ -8,6 +8,37 @@ class PqcV2GroupCodec {
 
   final PqcPrimitiveSuite _primitives;
 
+  PqcGroupPayloadMetadata? inspect(String payload) {
+    try {
+      if (!payload.startsWith('${PqcV2Wire.groupPrefix}:')) {
+        return null;
+      }
+      final document = _decode(
+        payload.substring(PqcV2Wire.groupPrefix.length + 1),
+      );
+      if (document['protocol_version'] != PqcV2Wire.protocolVersion ||
+          document['algorithm'] != PqcV2Wire.groupAlgorithm) {
+        return null;
+      }
+      final conversationId = document['conversation_id'];
+      final conversationType = document['conversation_type'];
+      final epochId = document['group_epoch_id'];
+      if (conversationId is! int ||
+          conversationType is! String ||
+          epochId is! String ||
+          epochId.isEmpty) {
+        return null;
+      }
+      return PqcGroupPayloadMetadata(
+        conversationId: conversationId,
+        conversationType: conversationType,
+        epochId: epochId,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<String> encrypt({
     required PqcConversation conversation,
     required String plaintext,

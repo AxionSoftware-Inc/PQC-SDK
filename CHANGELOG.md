@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-dev.3
+
+- Add validated, read-only PQCv2 group payload metadata inspection for host
+  epoch resolution.
+
 ## 0.1.0-dev.2
 
 - Publish as a standalone private repository.

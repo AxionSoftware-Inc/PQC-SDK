@@ -69,6 +69,18 @@ class PqcGroupEpoch {
   final Uint8List secretKeyBytes;
 }
 
+class PqcGroupPayloadMetadata {
+  const PqcGroupPayloadMetadata({
+    required this.conversationId,
+    required this.conversationType,
+    required this.epochId,
+  });
+
+  final int conversationId;
+  final String conversationType;
+  final String epochId;
+}
+
 enum PqcDecodeFailure {
   unsupported,
   bindingMismatch,
