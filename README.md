@@ -33,13 +33,12 @@ database, IndexedDB, an HSM, or another appropriate facility.
 dependencies:
   pqc_engine_sdk:
     git:
-      url: git@github.com:AxionSoftware-Inc/PQC_Flutter.git
-      ref: pqc-engine-sdk-v0.1.0-dev.1
-      path: packages/pqc_engine_sdk
+      url: git@github.com:AxionSoftware-Inc/PQC-SDK.git
+      ref: v0.1.0-dev.2
 ```
 
-For paid distribution, publish the same tagged package to a private Dart
-package registry and issue registry credentials to licensed customers.
+For paid distribution, grant repository access to licensed customers or
+publish the same tagged package to a private Dart package registry.
 
 ## Basic private-message use
 

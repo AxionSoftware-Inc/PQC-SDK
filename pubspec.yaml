@@ -1,8 +1,8 @@
 name: pqc_engine_sdk
 description: Pure Dart, versioned post-quantum messaging engine SDK.
-version: 0.1.0-dev.1
+version: 0.1.0-dev.2
 publish_to: none
-repository: https://github.com/AxionSoftware-Inc/PQC_Flutter
+repository: https://github.com/AxionSoftware-Inc/PQC-SDK
 
 environment:
   sdk: ^3.10.0

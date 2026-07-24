@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-dev.2
+
+- Publish as a standalone private repository.
+- Correct package repository metadata and installation instructions.
+
 ## 0.1.0-dev.1
 
 - Initial pure Dart engine package.
