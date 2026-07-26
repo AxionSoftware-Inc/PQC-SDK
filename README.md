@@ -16,6 +16,11 @@ UI, HTTP, login, database, file-system or platform-storage dependency.
 - explicit protocol registry and production write gate
 - capability negotiation checks
 - host interfaces for secure key storage and encrypted recovery transport
+- atomic, checksummed key-vault orchestration over a host storage adapter
+- key continuity that retains rotated keys as historical decoders
+- encrypted account-bound recovery with monotonic revision conflict checks
+- automatic reinstall restore and key-missing decrypt retry
+- health-gated writes and durable replay/message-id collision protection
 
 ## Platform support
 
@@ -34,7 +39,7 @@ dependencies:
   pqc_engine_sdk:
     git:
       url: git@github.com:AxionSoftware-Inc/PQC-SDK.git
-      ref: v0.1.0-dev.3
+      ref: v0.2.0
 ```
 
 For paid distribution, grant repository access to licensed customers or
@@ -74,6 +79,7 @@ final manager = PqcEngineManager(
   decoders: [PqcV2Engine()],
   activeWriterId: 'pqc-v2',
   writerEnabled: true,
+  releaseProfile: PqcReleaseProfiles.v25,
 );
 
 final writer = manager.requireWriter(
@@ -86,18 +92,54 @@ The host should leave `writerEnabled` false until its recovery, real-device
 and server-capability tests pass. A recognized payload is never retried with a
 different protocol after authentication fails.
 
+V2.5 is a release profile, not a new wire protocol. It writes immutable
+`pqc:v2` / `group:v2` payloads and permanently retains the V2 decoder.
+
+## Secure runtime
+
+```dart
+final atomicStore = MyKeychainOrEncryptedDatabaseAdapter();
+final vault = PqcIntegrityKeyVault(store: atomicStore);
+final health = PqcCryptoHealthMonitor();
+final recovery = PqcRecoveryCoordinator(
+  vault: vault,
+  transport: MyConditionalRecoveryTransport(),
+  keyProvider: MyAccountRecoveryKeyProvider(),
+  healthMonitor: health,
+);
+final runtime = PqcSecureRuntime(
+  manager: manager,
+  vault: vault,
+  recovery: recovery,
+  replayGuard: PqcReplayGuard(PqcAtomicReplayStore(atomicStore)),
+  healthMonitor: health,
+);
+
+await runtime.initializeAccount(accountId); // login/reinstall restore
+final writer = await runtime.prepareWriter(
+  accountId: accountId,
+  kind: PqcConversationKind.private,
+  remote: serverCapabilities,
+);
+```
+
+`rotateDeviceKeyset` returns only after the private key is atomically durable
+and its encrypted recovery revision is synchronized. Publish the returned
+public key only after that future completes. `persistGroupEpochBeforeAck`
+provides the equivalent ordering guarantee for group epochs.
+
 ## Host responsibilities
 
 The integrating application is responsible for:
 
 1. assigning a stable account id and device id;
-2. atomically persisting the private keyset before publishing its public key;
-3. retaining old keysets as read-only history after rotation;
+2. implementing `PqcAtomicStore` with a real atomic durable transaction;
+3. publishing public keys only after `rotateDeviceKeyset` succeeds;
 4. maintaining trusted current and historical signing public keys;
-5. encrypting, hashing, versioning and conflict-checking recovery snapshots;
-6. restoring keys before history decryption after login or reinstall;
+5. supplying a protected 32-byte account recovery key;
+6. implementing conditional recovery upload for race-free server sync;
 7. persisting group epochs before acknowledging group messages;
-8. replay protection and unique message ids at the transport/database layer;
+8. assigning stable unique message ids before using the replay guard;
 9. upload/download streaming, retries and attachment size policy;
 10. keeping logs free of plaintext and secret key material.
 

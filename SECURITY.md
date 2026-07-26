@@ -10,21 +10,27 @@
 - explicit missing-key, untrusted-sender, binding and corruption outcomes;
 - no protocol fallback after a recognized payload fails authentication;
 - remote capability checks before a writer is returned.
+- checksummed atomic key-vault records with compare-and-set retries;
+- old-key retention and keyset/group-epoch rebinding rejection;
+- account-bound authenticated recovery envelopes and revision conflicts;
+- automatic key-missing restore/retry without protocol downgrade;
+- health-gated writes and durable replay/message-id collision claims.
 
 ## Required host controls
 
-Private keys must be encrypted at rest and written atomically. Publishing a
-public key before its private counterpart and recovery snapshot are durable
-can create permanent history loss. Rotation must mark an old keyset read-only,
-not delete it.
+The host `PqcAtomicStore` must encrypt records at rest and implement
+compare-and-set as one durable transaction. The SDK validates checksums and
+ordering but cannot make a broken platform adapter atomic. Publishing a public
+key before `PqcSecureRuntime.rotateDeviceKeyset` completes can create history
+loss and is forbidden.
 
-Recovery snapshots need an account binding, monotonically increasing revision,
-authenticated encryption, SHA-256 integrity value and conflict handling. The
-recovery transport only receives encrypted blobs.
+The host must protect the 32-byte recovery master key and implement a
+conditional recovery transport. The recovery server receives only an
+authenticated encrypted envelope, its revision and SHA-256 value.
 
-Replay prevention belongs to the message store because it owns message ids and
-transaction boundaries. Reject an already accepted `(conversationId,
-messageId)` pair before presenting the plaintext.
+Use `PqcAtomicReplayStore` with a durable adapter before presenting newly
+received plaintext. Duplicate ciphertext is classified separately from reuse
+of the same message id for different ciphertext.
 
 Never log plaintext, private keys, shared secrets, attachment descriptors or
 full encrypted recovery blobs. Error telemetry should contain only a stable

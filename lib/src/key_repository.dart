@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'models.dart';
 
 /// Persistence boundary implemented by the host application.
@@ -48,13 +50,13 @@ abstract interface class PqcRecoveryRepository {
 }
 
 class PqcRecoverySnapshot {
-  const PqcRecoverySnapshot({
+  PqcRecoverySnapshot({
     required this.revision,
-    required this.encryptedBlob,
+    required List<int> encryptedBlob,
     required this.sha256,
-  });
+  }) : encryptedBlob = Uint8List.fromList(encryptedBlob);
 
   final int revision;
-  final List<int> encryptedBlob;
+  final Uint8List encryptedBlob;
   final String sha256;
 }

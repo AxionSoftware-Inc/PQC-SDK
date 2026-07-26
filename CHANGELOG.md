@@ -18,3 +18,12 @@
 - Protocol registry, capability negotiation and writer gate.
 - Secure-storage and encrypted-recovery host interfaces.
 - VM tests and JavaScript compile verification.
+# 0.2.0
+
+- Added V2.5 release profile while preserving the frozen V2 wire protocol.
+- Added an integrity-checked atomic key vault and explicit continuity guard.
+- Added encrypted, account-bound, revisioned recovery coordination.
+- Added login/reinstall restore and automatic key-missing decrypt retry.
+- Added crypto health gating before encrypted writes.
+- Added durable replay and message-id collision protection.
+- Added power-loss, concurrency, recovery tamper and reinstall chaos tests.

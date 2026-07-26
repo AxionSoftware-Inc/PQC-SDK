@@ -54,11 +54,13 @@ abstract interface class PqcPrimitiveSuite {
     required List<int> plaintext,
     required List<int> key,
     required List<int> nonce,
+    List<int> associatedData = const [],
   });
 
   Future<Uint8List> decryptAead({
     required PqcAeadBox box,
     required List<int> key,
+    List<int> associatedData = const [],
   });
 
   Future<Uint8List> deriveKey({
@@ -188,6 +190,7 @@ class DartPqcPrimitiveSuite implements PqcPrimitiveSuite {
     required List<int> plaintext,
     required List<int> key,
     required List<int> nonce,
+    List<int> associatedData = const [],
   }) async {
     _requireLength(key, 32, 'AES-256 key');
     _requireLength(nonce, 12, 'AES-GCM nonce');
@@ -195,6 +198,7 @@ class DartPqcPrimitiveSuite implements PqcPrimitiveSuite {
       plaintext,
       secretKey: SecretKey(key),
       nonce: nonce,
+      aad: associatedData,
     );
     return PqcAeadBox(
       nonce: box.nonce,
@@ -207,11 +211,13 @@ class DartPqcPrimitiveSuite implements PqcPrimitiveSuite {
   Future<Uint8List> decryptAead({
     required PqcAeadBox box,
     required List<int> key,
+    List<int> associatedData = const [],
   }) async {
     _requireLength(key, 32, 'AES-256 key');
     final clear = await _cipher.decrypt(
       SecretBox(box.ciphertext, nonce: box.nonce, mac: Mac(box.mac)),
       secretKey: SecretKey(key),
+      aad: associatedData,
     );
     return Uint8List.fromList(clear);
   }

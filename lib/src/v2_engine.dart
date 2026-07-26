@@ -13,6 +13,23 @@ abstract interface class PqcEngine {
 
   bool recognizesPrivate(String payload);
   bool recognizesGroup(String payload);
+
+  PqcDeviceKeyset generateDeviceKeyset(String deviceId);
+
+  Future<PqcDecodeResult> decryptPrivate({
+    required PqcConversation conversation,
+    required String payload,
+    required Iterable<PqcDeviceKeyset> localKeysets,
+    required Map<String, Set<String>> trustedSigningKeysByDevice,
+  });
+
+  PqcGroupPayloadMetadata? inspectGroup(String payload);
+
+  Future<PqcDecodeResult> decryptGroup({
+    required PqcConversation conversation,
+    required String payload,
+    required Map<String, PqcGroupEpoch> epochsById,
+  });
 }
 
 class PqcV2Engine implements PqcEngine {
@@ -51,4 +68,36 @@ class PqcV2Engine implements PqcEngine {
 
   @override
   bool recognizesGroup(String payload) => payload.startsWith('$groupPrefix:');
+
+  @override
+  PqcDeviceKeyset generateDeviceKeyset(String deviceId) =>
+      primitives.generateDeviceKeyset(deviceId);
+
+  @override
+  Future<PqcDecodeResult> decryptPrivate({
+    required PqcConversation conversation,
+    required String payload,
+    required Iterable<PqcDeviceKeyset> localKeysets,
+    required Map<String, Set<String>> trustedSigningKeysByDevice,
+  }) => private.decrypt(
+    conversation: conversation,
+    payload: payload,
+    localKeysets: localKeysets,
+    trustedSigningKeysByDevice: trustedSigningKeysByDevice,
+  );
+
+  @override
+  PqcGroupPayloadMetadata? inspectGroup(String payload) =>
+      group.inspect(payload);
+
+  @override
+  Future<PqcDecodeResult> decryptGroup({
+    required PqcConversation conversation,
+    required String payload,
+    required Map<String, PqcGroupEpoch> epochsById,
+  }) => group.decrypt(
+    conversation: conversation,
+    payload: payload,
+    epochsById: epochsById,
+  );
 }

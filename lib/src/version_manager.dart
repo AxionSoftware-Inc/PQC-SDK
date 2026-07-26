@@ -3,6 +3,33 @@ import 'v2_engine.dart';
 
 enum PqcConversationKind { private, group }
 
+class PqcEngineReleaseProfile {
+  const PqcEngineReleaseProfile({
+    required this.releaseId,
+    required this.activeProtocolVersion,
+    required this.requiredDecoderIds,
+  });
+
+  final String releaseId;
+  final int activeProtocolVersion;
+  final Set<String> requiredDecoderIds;
+}
+
+abstract final class PqcReleaseProfiles {
+  static const v2 = PqcEngineReleaseProfile(
+    releaseId: '2.0.0',
+    activeProtocolVersion: 2,
+    requiredDecoderIds: {'pqc-v2'},
+  );
+
+  /// V2.5 intentionally keeps the immutable V2 wire format and decoder.
+  static const v25 = PqcEngineReleaseProfile(
+    releaseId: '2.5.0',
+    activeProtocolVersion: 2,
+    requiredDecoderIds: {'pqc-v2'},
+  );
+}
+
 class PqcCompatibilityException implements Exception {
   const PqcCompatibilityException(this.message);
 
@@ -21,6 +48,7 @@ class PqcEngineManager {
     required Iterable<PqcEngine> decoders,
     String? activeWriterId,
     this.writerEnabled = false,
+    this.releaseProfile = PqcReleaseProfiles.v2,
   }) : _decoders = {for (final engine in decoders) engine.engineId: engine},
        _activeWriterId = activeWriterId {
     if (_decoders.isEmpty) {
@@ -32,11 +60,28 @@ class PqcEngineManager {
     if (activeWriterId != null && !_decoders.containsKey(activeWriterId)) {
       throw ArgumentError('Active writer must be a registered engine.');
     }
+    final missing = releaseProfile.requiredDecoderIds.difference(
+      _decoders.keys.toSet(),
+    );
+    if (missing.isNotEmpty) {
+      throw ArgumentError('Required historical decoders are missing: $missing');
+    }
+    final writer = activeWriter;
+    if (writer != null &&
+        writer.protocolVersion != releaseProfile.activeProtocolVersion) {
+      throw ArgumentError(
+        'Release ${releaseProfile.releaseId} requires protocol '
+        '${releaseProfile.activeProtocolVersion}.',
+      );
+    }
   }
 
   final Map<String, PqcEngine> _decoders;
   final String? _activeWriterId;
   final bool writerEnabled;
+  final PqcEngineReleaseProfile releaseProfile;
+
+  String get releaseId => releaseProfile.releaseId;
 
   List<PqcEngine> get decoders => List.unmodifiable(_decoders.values);
 
