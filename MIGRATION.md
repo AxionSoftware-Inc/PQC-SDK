@@ -1,8 +1,7 @@
 # Application migration
 
-This package is intentionally not wired into the existing Flutter application
-yet. Integration should be done through adapters so that UI and networking do
-not enter the engine package.
+The package is wired into the Flutter application only through the dedicated
+adapter package. UI, HTTP and platform storage do not enter the engine SDK.
 
 ## Recommended sequence
 

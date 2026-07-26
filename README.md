@@ -39,7 +39,7 @@ dependencies:
   pqc_engine_sdk:
     git:
       url: git@github.com:AxionSoftware-Inc/PQC-SDK.git
-      ref: v0.2.0
+      ref: sdk-v2.5.0-freeze
 ```
 
 For paid distribution, grant repository access to licensed customers or
@@ -50,10 +50,11 @@ publish the same tagged package to a private Dart package registry.
 ```dart
 import 'package:pqc_engine_sdk/pqc_engine_sdk.dart';
 
-final engine = PqcV2Engine();
-final alice = engine.primitives.generateDeviceKeyset('alice-phone');
+final decoder = PqcV2Engine();
+final writer = PqcV25Writer();
+final alice = writer.primitives.generateDeviceKeyset('alice-phone');
 
-final payload = await engine.private.encrypt(
+final payload = await writer.private.encrypt(
   conversation: const PqcConversation(id: 42, type: 'private'),
   plaintext: 'Assalomu alaykum',
   sender: alice,
@@ -76,8 +77,8 @@ payload.
 
 ```dart
 final manager = PqcEngineManager(
-  decoders: [PqcV2Engine()],
-  activeWriterId: 'pqc-v2',
+  decoders: [PqcV2Engine()], // frozen history reader
+  activeWriter: PqcV25Writer(),
   writerEnabled: true,
   releaseProfile: PqcReleaseProfiles.v25,
 );
@@ -92,8 +93,9 @@ The host should leave `writerEnabled` false until its recovery, real-device
 and server-capability tests pass. A recognized payload is never retried with a
 different protocol after authentication fails.
 
-V2.5 is a release profile, not a new wire protocol. It writes immutable
-`pqc:v2` / `group:v2` payloads and permanently retains the V2 decoder.
+`releaseId: 2.5.0` and `wireProtocol: v2` are independent values. V2.5 writes
+immutable `pqc:v2` / `group:v2` payloads through its dedicated writer while
+the frozen V2 decoder remains permanently registered for history.
 
 ## Secure runtime
 

@@ -195,6 +195,15 @@ abstract interface class PqcKeyVaultRepository implements PqcKeyRepository {
   });
 
   Future<void> verifyIntegrity(String accountId);
+
+  /// Retires the local current key without deleting its decrypt capability.
+  ///
+  /// The host remains responsible for revoking the public device record on
+  /// the server. The private material is retained as read-only history.
+  Future<void> revokeCurrentDeviceKeyset({
+    required String accountId,
+    required String deviceId,
+  });
 }
 
 /// Integrity-checked, append-preserving implementation of the SDK key vault.
@@ -393,6 +402,38 @@ class PqcIntegrityKeyVault implements PqcKeyVaultRepository {
     await _read(accountId);
   }
 
+  @override
+  Future<void> revokeCurrentDeviceKeyset({
+    required String accountId,
+    required String deviceId,
+  }) async {
+    if (deviceId.trim().isEmpty) {
+      throw ArgumentError.value(deviceId, 'deviceId', 'Must not be empty.');
+    }
+    await _mutate(accountId, (current) {
+      final active = current.currentDeviceKeyset;
+      if (active == null) return current;
+      if (active.deviceId != deviceId) {
+        throw const PqcVaultException(
+          PqcVaultFailure.continuityViolation,
+          'Cannot revoke a device that is not the current local keyset.',
+        );
+      }
+      final historical =
+          <String, PqcDeviceKeyset>{
+              for (final value in current.historicalDeviceKeysets)
+                value.keysetId: value,
+              active.keysetId: active,
+            }.values.toList(growable: false)
+            ..sort((left, right) => left.keysetId.compareTo(right.keysetId));
+      return _copySnapshot(
+        current,
+        clearCurrentDeviceKeyset: true,
+        historicalDeviceKeysets: historical,
+      );
+    });
+  }
+
   Future<PqcKeyVaultSnapshot> _read(String accountId) async {
     _requireAccountId(accountId);
     final record = await _store.read(
@@ -481,13 +522,16 @@ PqcKeyVaultSnapshot _copySnapshot(
   PqcKeyVaultSnapshot source, {
   int? revision,
   PqcDeviceKeyset? currentDeviceKeyset,
+  bool clearCurrentDeviceKeyset = false,
   List<PqcDeviceKeyset>? historicalDeviceKeysets,
   List<PqcVaultGroupEpoch>? groupEpochs,
 }) => PqcKeyVaultSnapshot(
   schemaVersion: source.schemaVersion,
   accountBinding: source.accountBinding,
   revision: revision ?? source.revision,
-  currentDeviceKeyset: currentDeviceKeyset ?? source.currentDeviceKeyset,
+  currentDeviceKeyset: clearCurrentDeviceKeyset
+      ? null
+      : currentDeviceKeyset ?? source.currentDeviceKeyset,
   historicalDeviceKeysets:
       historicalDeviceKeysets ?? source.historicalDeviceKeysets,
   groupEpochs: groupEpochs ?? source.groupEpochs,

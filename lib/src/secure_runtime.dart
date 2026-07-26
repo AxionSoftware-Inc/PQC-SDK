@@ -206,6 +206,20 @@ class PqcSecureRuntime {
     return keyset;
   }
 
+  /// Retires a revoked device key while preserving historical decryption.
+  /// A new writer key must be rotated before another encrypted send.
+  Future<void> revokeCurrentDevice({
+    required String accountId,
+    required String deviceId,
+  }) async {
+    await vault.revokeCurrentDeviceKeyset(
+      accountId: accountId,
+      deviceId: deviceId,
+    );
+    await recovery.synchronize(accountId);
+    healthMonitor.report(PqcHealthIssue.currentKeyMissing, blocking: true);
+  }
+
   /// Persists a received group epoch and its recovery snapshot before ACK.
   Future<void> persistGroupEpochBeforeAck({
     required String accountId,

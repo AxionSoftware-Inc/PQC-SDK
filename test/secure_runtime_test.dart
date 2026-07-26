@@ -90,21 +90,38 @@ void main() {
   });
 
   test('V2.5 release uses frozen V2 wire and retains its decoder', () {
+    final writer = PqcV25Writer();
     final manager = PqcEngineManager(
       decoders: [engine],
-      activeWriterId: engine.engineId,
+      activeWriter: writer,
       writerEnabled: true,
       releaseProfile: PqcReleaseProfiles.v25,
     );
 
     expect(manager.releaseId, '2.5.0');
+    expect(manager.wireProtocolId, 'v2');
+    expect(manager.decoders, [same(engine)]);
+    expect(manager.activeWriter, same(writer));
+    expect(manager.activeWriter, isNot(same(engine)));
     expect(manager.activeWriter?.protocolVersion, 2);
     expect(
       manager.requireWriter(
         kind: PqcConversationKind.private,
         remote: capabilities,
       ),
-      same(engine),
+      same(writer),
+    );
+  });
+
+  test('V2.5 refuses a frozen decoder reused as its active writer', () {
+    expect(
+      () => PqcEngineManager(
+        decoders: [engine],
+        activeWriter: engine,
+        writerEnabled: true,
+        releaseProfile: PqcReleaseProfiles.v25,
+      ),
+      throwsArgumentError,
     );
   });
 
@@ -355,6 +372,126 @@ void main() {
     },
   );
 
+  test('relogin is idempotent and keeps the same current key', () async {
+    final store = PqcMemoryAtomicStore();
+    final transport = PqcMemoryRecoveryRepository();
+    final vault = PqcIntegrityKeyVault(store: store);
+    final health = PqcCryptoHealthMonitor();
+    final recovery = PqcRecoveryCoordinator(
+      vault: vault,
+      transport: transport,
+      keyProvider: const _FixedRecoveryKeyProvider(19),
+      healthMonitor: health,
+    );
+    final runtime = PqcSecureRuntime(
+      manager: PqcEngineManager(
+        decoders: [engine],
+        activeWriter: PqcV25Writer(),
+        writerEnabled: true,
+        releaseProfile: PqcReleaseProfiles.v25,
+      ),
+      vault: vault,
+      recovery: recovery,
+      replayGuard: PqcReplayGuard(PqcAtomicReplayStore(store)),
+      healthMonitor: health,
+    );
+    await runtime.initializeAccount(accountId);
+    final created = await runtime.rotateDeviceKeyset(
+      accountId: accountId,
+      deviceId: 'phone',
+    );
+    await runtime.initializeAccount(accountId);
+    await runtime.initializeAccount(accountId);
+
+    expect(
+      (await vault.readCurrentDeviceKeyset(accountId))?.keysetId,
+      created.keysetId,
+    );
+    expect(await vault.readHistoricalDeviceKeysets(accountId), isEmpty);
+    expect(health.snapshot.isSafeToWrite, isTrue);
+  });
+
+  test(
+    'device revoke preserves decrypt history and blocks writes until rotation',
+    () async {
+      final store = PqcMemoryAtomicStore();
+      final transport = PqcMemoryRecoveryRepository();
+      final vault = PqcIntegrityKeyVault(store: store);
+      final health = PqcCryptoHealthMonitor();
+      final recovery = PqcRecoveryCoordinator(
+        vault: vault,
+        transport: transport,
+        keyProvider: const _FixedRecoveryKeyProvider(23),
+        healthMonitor: health,
+      );
+      final writer = PqcV25Writer();
+      final runtime = PqcSecureRuntime(
+        manager: PqcEngineManager(
+          decoders: [engine],
+          activeWriter: writer,
+          writerEnabled: true,
+          releaseProfile: PqcReleaseProfiles.v25,
+        ),
+        vault: vault,
+        recovery: recovery,
+        replayGuard: PqcReplayGuard(PqcAtomicReplayStore(store)),
+        healthMonitor: health,
+      );
+      await runtime.initializeAccount(accountId);
+      final original = await runtime.rotateDeviceKeyset(
+        accountId: accountId,
+        deviceId: 'phone',
+      );
+      final sender = engine.generateDeviceKeyset('sender');
+      final payload = await writer.private.encrypt(
+        conversation: privateConversation,
+        plaintext: 'retained after revoke',
+        sender: sender,
+        recipientDevices: [original.publicKey],
+      );
+
+      await runtime.revokeCurrentDevice(
+        accountId: accountId,
+        deviceId: 'phone',
+      );
+      expect(await vault.readCurrentDeviceKeyset(accountId), isNull);
+      expect(
+        (await vault.readHistoricalDeviceKeysets(accountId)).single.keysetId,
+        original.keysetId,
+      );
+      expect(
+        () => runtime.requireWriter(
+          kind: PqcConversationKind.private,
+          remote: capabilities,
+        ),
+        throwsA(isA<PqcCryptoHealthException>()),
+      );
+
+      final decoded = await runtime.decryptRetry.decryptPrivate(
+        accountId: accountId,
+        conversation: privateConversation,
+        payload: payload,
+        trustedSigningKeysByDevice: {
+          sender.deviceId: {sender.signingPublicKeyBase64},
+        },
+      );
+      expect((decoded as PqcDecoded).plaintext, 'retained after revoke');
+
+      final replacement = await runtime.rotateDeviceKeyset(
+        accountId: accountId,
+        deviceId: 'replacement-phone',
+      );
+      expect(replacement.keysetId, isNot(original.keysetId));
+      expect(
+        (await vault.readHistoricalDeviceKeysets(
+          accountId,
+        )).map((item) => item.keysetId),
+        contains(original.keysetId),
+      );
+      expect(health.snapshot.isSafeToWrite, isTrue);
+    },
+  );
+
   test('encrypted recovery restores group epoch before retry', () async {
     final transport = PqcMemoryRecoveryRepository();
     const keyProvider = _FixedRecoveryKeyProvider(21);
@@ -405,6 +542,85 @@ void main() {
     );
 
     expect((result as PqcDecoded).plaintext, 'group history');
+  });
+
+  test('group rekey recovery decrypts both old and new epochs', () async {
+    final transport = PqcMemoryRecoveryRepository();
+    const keyProvider = _FixedRecoveryKeyProvider(27);
+    final sourceVault = PqcIntegrityKeyVault(store: PqcMemoryAtomicStore());
+    final sourceRecovery = PqcRecoveryCoordinator(
+      vault: sourceVault,
+      transport: transport,
+      keyProvider: keyProvider,
+    );
+    final keyset = engine.generateDeviceKeyset('phone');
+    final oldEpoch = PqcGroupEpoch(
+      epochId: 'epoch-old',
+      secretKeyBytes: List<int>.generate(32, (index) => index),
+    );
+    final newEpoch = PqcGroupEpoch(
+      epochId: 'epoch-new',
+      secretKeyBytes: List<int>.generate(32, (index) => 255 - index),
+    );
+    await sourceVault.saveDeviceKeyset(
+      accountId: accountId,
+      keyset: keyset,
+      makeCurrent: true,
+    );
+    await sourceVault.saveGroupEpoch(
+      accountId: accountId,
+      conversationId: groupConversation.id,
+      epoch: oldEpoch,
+    );
+    await sourceVault.saveGroupEpoch(
+      accountId: accountId,
+      conversationId: groupConversation.id,
+      epoch: newEpoch,
+    );
+    await sourceRecovery.synchronize(accountId);
+    final oldPayload = await engine.group.encrypt(
+      conversation: groupConversation,
+      plaintext: 'before rekey',
+      epoch: oldEpoch,
+    );
+    final newPayload = await engine.group.encrypt(
+      conversation: groupConversation,
+      plaintext: 'after rekey',
+      epoch: newEpoch,
+    );
+
+    final restoredVault = PqcIntegrityKeyVault(store: PqcMemoryAtomicStore());
+    final restoredRecovery = PqcRecoveryCoordinator(
+      vault: restoredVault,
+      transport: transport,
+      keyProvider: keyProvider,
+    );
+    final retry = PqcDecryptRetryCoordinator(
+      manager: PqcEngineManager(decoders: [engine]),
+      vault: restoredVault,
+      recovery: restoredRecovery,
+      healthMonitor: restoredRecovery.healthMonitor,
+    );
+    expect(
+      (await retry.decryptGroup(
+                accountId: accountId,
+                conversation: groupConversation,
+                payload: oldPayload,
+              )
+              as PqcDecoded)
+          .plaintext,
+      'before rekey',
+    );
+    expect(
+      (await retry.decryptGroup(
+                accountId: accountId,
+                conversation: groupConversation,
+                payload: newPayload,
+              )
+              as PqcDecoded)
+          .plaintext,
+      'after rekey',
+    );
   });
 
   test(
@@ -605,6 +821,7 @@ void main() {
     () async {
       final health = PqcCryptoHealthMonitor();
       final vault = PqcIntegrityKeyVault(store: PqcMemoryAtomicStore());
+      final writer = PqcV25Writer();
       final recovery = PqcRecoveryCoordinator(
         vault: vault,
         transport: PqcMemoryRecoveryRepository(),
@@ -614,7 +831,7 @@ void main() {
       final runtime = PqcSecureRuntime(
         manager: PqcEngineManager(
           decoders: [engine],
-          activeWriterId: engine.engineId,
+          activeWriter: writer,
           writerEnabled: true,
           releaseProfile: PqcReleaseProfiles.v25,
         ),
@@ -638,7 +855,7 @@ void main() {
           kind: PqcConversationKind.private,
           remote: capabilities,
         ),
-        same(engine),
+        same(writer),
       );
       expect(health.snapshot.isSafeToWrite, isTrue);
     },

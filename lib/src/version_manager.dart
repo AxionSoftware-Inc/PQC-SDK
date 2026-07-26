@@ -3,29 +3,44 @@ import 'v2_engine.dart';
 
 enum PqcConversationKind { private, group }
 
+class PqcWireProtocol {
+  const PqcWireProtocol({required this.id, required this.version});
+
+  final String id;
+  final int version;
+}
+
+abstract final class PqcWireProtocols {
+  static const v2 = PqcWireProtocol(id: 'v2', version: 2);
+}
+
 class PqcEngineReleaseProfile {
   const PqcEngineReleaseProfile({
     required this.releaseId,
-    required this.activeProtocolVersion,
+    required this.wireProtocol,
+    required this.activeWriterEngineId,
     required this.requiredDecoderIds,
   });
 
   final String releaseId;
-  final int activeProtocolVersion;
+  final PqcWireProtocol wireProtocol;
+  final String activeWriterEngineId;
   final Set<String> requiredDecoderIds;
 }
 
 abstract final class PqcReleaseProfiles {
   static const v2 = PqcEngineReleaseProfile(
     releaseId: '2.0.0',
-    activeProtocolVersion: 2,
+    wireProtocol: PqcWireProtocols.v2,
+    activeWriterEngineId: 'pqc-v2',
     requiredDecoderIds: {'pqc-v2'},
   );
 
   /// V2.5 intentionally keeps the immutable V2 wire format and decoder.
   static const v25 = PqcEngineReleaseProfile(
     releaseId: '2.5.0',
-    activeProtocolVersion: 2,
+    wireProtocol: PqcWireProtocols.v2,
+    activeWriterEngineId: 'pqc-v2.5-writer',
     requiredDecoderIds: {'pqc-v2'},
   );
 }
@@ -46,16 +61,21 @@ class PqcCompatibilityException implements Exception {
 class PqcEngineManager {
   PqcEngineManager({
     required Iterable<PqcEngine> decoders,
+    PqcEngine? activeWriter,
     String? activeWriterId,
     this.writerEnabled = false,
     this.releaseProfile = PqcReleaseProfiles.v2,
-  }) : _decoders = {for (final engine in decoders) engine.engineId: engine},
-       _activeWriterId = activeWriterId {
+  }) : _decoders = {for (final engine in decoders) engine.engineId: engine} {
     if (_decoders.isEmpty) {
       throw ArgumentError('At least one decoder must be registered.');
     }
     if (_decoders.length != decoders.length) {
       throw ArgumentError('Engine ids must be unique.');
+    }
+    if (activeWriter != null && activeWriterId != null) {
+      throw ArgumentError(
+        'Use activeWriter or the legacy activeWriterId, not both.',
+      );
     }
     if (activeWriterId != null && !_decoders.containsKey(activeWriterId)) {
       throw ArgumentError('Active writer must be a registered engine.');
@@ -66,27 +86,39 @@ class PqcEngineManager {
     if (missing.isNotEmpty) {
       throw ArgumentError('Required historical decoders are missing: $missing');
     }
-    final writer = activeWriter;
+    _activeWriter =
+        activeWriter ??
+        (activeWriterId == null ? null : _decoders[activeWriterId]);
+    final writer = _activeWriter;
     if (writer != null &&
-        writer.protocolVersion != releaseProfile.activeProtocolVersion) {
+        (writer.wireProtocolId != releaseProfile.wireProtocol.id ||
+            writer.protocolVersion != releaseProfile.wireProtocol.version)) {
       throw ArgumentError(
-        'Release ${releaseProfile.releaseId} requires protocol '
-        '${releaseProfile.activeProtocolVersion}.',
+        'Release ${releaseProfile.releaseId} requires wire protocol '
+        '${releaseProfile.wireProtocol.id}.',
+      );
+    }
+    if (writer != null &&
+        writer.engineId != releaseProfile.activeWriterEngineId) {
+      throw ArgumentError(
+        'Release ${releaseProfile.releaseId} requires writer '
+        '${releaseProfile.activeWriterEngineId}.',
       );
     }
   }
 
   final Map<String, PqcEngine> _decoders;
-  final String? _activeWriterId;
+  late final PqcEngine? _activeWriter;
   final bool writerEnabled;
   final PqcEngineReleaseProfile releaseProfile;
 
   String get releaseId => releaseProfile.releaseId;
 
+  String get wireProtocolId => releaseProfile.wireProtocol.id;
+
   List<PqcEngine> get decoders => List.unmodifiable(_decoders.values);
 
-  PqcEngine? get activeWriter =>
-      _activeWriterId == null ? null : _decoders[_activeWriterId];
+  PqcEngine? get activeWriter => _activeWriter;
 
   PqcEngine resolveDecoder({
     required PqcConversationKind kind,

@@ -6,6 +6,7 @@ import 'v2_private_codec.dart';
 
 abstract interface class PqcEngine {
   String get engineId;
+  String get wireProtocolId;
   int get protocolVersion;
   String get privatePrefix;
   String get groupPrefix;
@@ -47,6 +48,9 @@ class PqcV2Engine implements PqcEngine {
 
   @override
   String get engineId => 'pqc-v2';
+
+  @override
+  String get wireProtocolId => 'v2';
 
   @override
   int get protocolVersion => PqcV2Wire.protocolVersion;
