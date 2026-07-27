@@ -100,13 +100,14 @@ the frozen V2 decoder remains permanently registered for history.
 ## Secure runtime
 
 ```dart
-final atomicStore = MyKeychainOrEncryptedDatabaseAdapter();
+final atomicStore = MyHardwareBackedAtomicStore();
 final vault = PqcIntegrityKeyVault(store: atomicStore);
 final health = PqcCryptoHealthMonitor();
 final recovery = PqcRecoveryCoordinator(
   vault: vault,
   transport: MyConditionalRecoveryTransport(),
   keyProvider: MyAccountRecoveryKeyProvider(),
+  authorizer: MyFreshDeviceRecoveryAuthorizer(),
   healthMonitor: health,
 );
 final runtime = PqcSecureRuntime(
@@ -135,15 +136,18 @@ provides the equivalent ordering guarantee for group epochs.
 The integrating application is responsible for:
 
 1. assigning a stable account id and device id;
-2. implementing `PqcAtomicStore` with a real atomic durable transaction;
-3. publishing public keys only after `rotateDeviceKeyset` succeeds;
-4. maintaining trusted current and historical signing public keys;
-5. supplying a protected 32-byte account recovery key;
-6. implementing conditional recovery upload for race-free server sync;
-7. persisting group epochs before acknowledging group messages;
-8. assigning stable unique message ids before using the replay guard;
-9. upload/download streaming, retries and attachment size policy;
-10. keeping logs free of plaintext and secret key material.
+2. implementing `PqcProductionAtomicStore` with encrypted-at-rest,
+   hardware-backed key protection and a real atomic durable transaction;
+3. providing a `PqcRecoveryAccessAuthorizer` that requires a fresh,
+   device-bound, short-lived proof rather than accepting a session token;
+4. publishing public keys only after `rotateDeviceKeyset` succeeds;
+5. maintaining trusted current and historical signing public keys;
+6. supplying a protected 32-byte account recovery key;
+7. implementing conditional recovery upload for race-free server sync;
+8. persisting group epochs before acknowledging group messages;
+9. assigning stable unique message ids before using the replay guard;
+10. upload/download streaming, retries and attachment size policy;
+11. keeping logs free of plaintext and secret key material.
 
 See [SECURITY.md](SECURITY.md) and [MIGRATION.md](MIGRATION.md).
 

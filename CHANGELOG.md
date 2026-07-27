@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.6
+
+- Made production key storage fail closed unless the host proves encrypted,
+  hardware-backed and atomically durable persistence.
+- Added mandatory fresh device-bound authorization for recovery reads/writes.
+- Restricted insecure memory/recovery bypasses to explicit non-product tests.
+
 ## 0.2.5
 
 - Strictly separated application release `2.5.0` from wire protocol `v2`.

@@ -45,6 +45,50 @@ class _InterruptingAtomicStore implements PqcAtomicStore {
   }
 }
 
+class _ProductionAtomicStore implements PqcProductionAtomicStore {
+  final PqcMemoryAtomicStore _delegate = PqcMemoryAtomicStore();
+
+  @override
+  bool get encryptedAtRest => true;
+
+  @override
+  bool get hardwareBackedKeyProtection => true;
+
+  @override
+  bool get atomicDurability => true;
+
+  @override
+  Future<PqcAtomicRecord?> read({
+    required String namespace,
+    required String key,
+  }) => _delegate.read(namespace: namespace, key: key);
+
+  @override
+  Future<bool> compareAndSet({
+    required String namespace,
+    required String key,
+    required int? expectedRevision,
+    required PqcAtomicRecord value,
+  }) => _delegate.compareAndSet(
+    namespace: namespace,
+    key: key,
+    expectedRevision: expectedRevision,
+    value: value,
+  );
+}
+
+class _RecordingRecoveryAuthorizer implements PqcRecoveryAccessAuthorizer {
+  final List<PqcRecoveryOperation> operations = [];
+
+  @override
+  Future<void> authorize({
+    required String accountId,
+    required PqcRecoveryOperation operation,
+  }) async {
+    operations.add(operation);
+  }
+}
+
 class _ConflictingRecoveryTransport
     implements PqcConditionalRecoveryRepository {
   @override
@@ -89,6 +133,71 @@ void main() {
     engine = PqcV2Engine();
   });
 
+  test('production vault rejects unprotected storage by default', () {
+    expect(
+      () => PqcIntegrityKeyVault(store: PqcMemoryAtomicStore()),
+      throwsA(
+        isA<PqcVaultException>().having(
+          (error) => error.failure,
+          'failure',
+          PqcVaultFailure.unavailable,
+        ),
+      ),
+    );
+    expect(
+      () => PqcIntegrityKeyVault(store: _ProductionAtomicStore()),
+      returnsNormally,
+    );
+  });
+
+  test('recovery refuses to start without device-bound authorization', () {
+    final vault = PqcIntegrityKeyVault(
+      allowInsecureStoreForTesting: true,
+      store: PqcMemoryAtomicStore(),
+    );
+    expect(
+      () => PqcRecoveryCoordinator(
+        vault: vault,
+        transport: PqcMemoryRecoveryRepository(),
+        keyProvider: const _FixedRecoveryKeyProvider(1),
+      ),
+      throwsA(
+        isA<PqcRecoveryException>().having(
+          (error) => error.failure,
+          'failure',
+          PqcRecoveryFailure.authorizationRequired,
+        ),
+      ),
+    );
+  });
+
+  test('authorized recovery checks every read and write operation', () async {
+    final vault = PqcIntegrityKeyVault(
+      allowInsecureStoreForTesting: true,
+      store: PqcMemoryAtomicStore(),
+    );
+    final authorizer = _RecordingRecoveryAuthorizer();
+    final recovery = PqcRecoveryCoordinator(
+      vault: vault,
+      transport: PqcMemoryRecoveryRepository(),
+      keyProvider: const _FixedRecoveryKeyProvider(2),
+      authorizer: authorizer,
+    );
+    await vault.saveDeviceKeyset(
+      accountId: accountId,
+      keyset: engine.generateDeviceKeyset('authorized-device'),
+      makeCurrent: true,
+    );
+    await recovery.synchronize(accountId);
+    expect(
+      authorizer.operations,
+      containsAll(<PqcRecoveryOperation>[
+        PqcRecoveryOperation.read,
+        PqcRecoveryOperation.write,
+      ]),
+    );
+  });
+
   test('V2.5 release uses frozen V2 wire and retains its decoder', () {
     final writer = PqcV25Writer();
     final manager = PqcEngineManager(
@@ -128,7 +237,10 @@ void main() {
   test(
     'atomic rotation preserves every old keyset as read-only history',
     () async {
-      final vault = PqcIntegrityKeyVault(store: PqcMemoryAtomicStore());
+      final vault = PqcIntegrityKeyVault(
+        allowInsecureStoreForTesting: true,
+        store: PqcMemoryAtomicStore(),
+      );
       final first = engine.generateDeviceKeyset('phone');
       final second = engine.generateDeviceKeyset('phone');
       final third = engine.generateDeviceKeyset('phone');
@@ -166,7 +278,10 @@ void main() {
     () async {
       final memory = PqcMemoryAtomicStore();
       final store = _InterruptingAtomicStore(memory);
-      final vault = PqcIntegrityKeyVault(store: store);
+      final vault = PqcIntegrityKeyVault(
+        allowInsecureStoreForTesting: true,
+        store: store,
+      );
       final first = engine.generateDeviceKeyset('phone');
       final second = engine.generateDeviceKeyset('phone');
       await vault.saveDeviceKeyset(
@@ -196,7 +311,10 @@ void main() {
   test('chaos writes expose either the old or fully committed vault', () async {
     final memory = PqcMemoryAtomicStore();
     final store = _InterruptingAtomicStore(memory);
-    final vault = PqcIntegrityKeyVault(store: store);
+    final vault = PqcIntegrityKeyVault(
+      allowInsecureStoreForTesting: true,
+      store: store,
+    );
     final candidates = List.generate(
       4,
       (index) => engine.generateDeviceKeyset('chaos-phone-$index'),
@@ -228,7 +346,10 @@ void main() {
 
   test('checksum corruption and keyset rebinding fail closed', () async {
     final memory = PqcMemoryAtomicStore();
-    final vault = PqcIntegrityKeyVault(store: memory);
+    final vault = PqcIntegrityKeyVault(
+      allowInsecureStoreForTesting: true,
+      store: memory,
+    );
     final keyset = engine.generateDeviceKeyset('phone');
     await vault.saveDeviceKeyset(
       accountId: accountId,
@@ -278,8 +399,12 @@ void main() {
     () async {
       final transport = PqcMemoryRecoveryRepository();
       const keyProvider = _FixedRecoveryKeyProvider(17);
-      final sourceVault = PqcIntegrityKeyVault(store: PqcMemoryAtomicStore());
+      final sourceVault = PqcIntegrityKeyVault(
+        allowInsecureStoreForTesting: true,
+        store: PqcMemoryAtomicStore(),
+      );
       final sourceRecovery = PqcRecoveryCoordinator(
+        allowUnauthenticatedRecoveryForTesting: true,
         vault: sourceVault,
         transport: transport,
         keyProvider: keyProvider,
@@ -300,10 +425,12 @@ void main() {
       );
 
       final reinstalledVault = PqcIntegrityKeyVault(
+        allowInsecureStoreForTesting: true,
         store: PqcMemoryAtomicStore(),
       );
       final health = PqcCryptoHealthMonitor();
       final reinstalledRecovery = PqcRecoveryCoordinator(
+        allowUnauthenticatedRecoveryForTesting: true,
         vault: reinstalledVault,
         transport: transport,
         keyProvider: keyProvider,
@@ -336,7 +463,10 @@ void main() {
   test(
     'account scopes never leak keys across relogin or account switch',
     () async {
-      final vault = PqcIntegrityKeyVault(store: PqcMemoryAtomicStore());
+      final vault = PqcIntegrityKeyVault(
+        allowInsecureStoreForTesting: true,
+        store: PqcMemoryAtomicStore(),
+      );
       final first = engine.generateDeviceKeyset('phone');
       final rotated = engine.generateDeviceKeyset('phone');
       await vault.saveDeviceKeyset(
@@ -375,9 +505,13 @@ void main() {
   test('relogin is idempotent and keeps the same current key', () async {
     final store = PqcMemoryAtomicStore();
     final transport = PqcMemoryRecoveryRepository();
-    final vault = PqcIntegrityKeyVault(store: store);
+    final vault = PqcIntegrityKeyVault(
+      allowInsecureStoreForTesting: true,
+      store: store,
+    );
     final health = PqcCryptoHealthMonitor();
     final recovery = PqcRecoveryCoordinator(
+      allowUnauthenticatedRecoveryForTesting: true,
       vault: vault,
       transport: transport,
       keyProvider: const _FixedRecoveryKeyProvider(19),
@@ -416,9 +550,13 @@ void main() {
     () async {
       final store = PqcMemoryAtomicStore();
       final transport = PqcMemoryRecoveryRepository();
-      final vault = PqcIntegrityKeyVault(store: store);
+      final vault = PqcIntegrityKeyVault(
+        allowInsecureStoreForTesting: true,
+        store: store,
+      );
       final health = PqcCryptoHealthMonitor();
       final recovery = PqcRecoveryCoordinator(
+        allowUnauthenticatedRecoveryForTesting: true,
         vault: vault,
         transport: transport,
         keyProvider: const _FixedRecoveryKeyProvider(23),
@@ -495,8 +633,12 @@ void main() {
   test('encrypted recovery restores group epoch before retry', () async {
     final transport = PqcMemoryRecoveryRepository();
     const keyProvider = _FixedRecoveryKeyProvider(21);
-    final sourceVault = PqcIntegrityKeyVault(store: PqcMemoryAtomicStore());
+    final sourceVault = PqcIntegrityKeyVault(
+      allowInsecureStoreForTesting: true,
+      store: PqcMemoryAtomicStore(),
+    );
     final sourceRecovery = PqcRecoveryCoordinator(
+      allowUnauthenticatedRecoveryForTesting: true,
       vault: sourceVault,
       transport: transport,
       keyProvider: keyProvider,
@@ -523,8 +665,12 @@ void main() {
       epoch: epoch,
     );
 
-    final targetVault = PqcIntegrityKeyVault(store: PqcMemoryAtomicStore());
+    final targetVault = PqcIntegrityKeyVault(
+      allowInsecureStoreForTesting: true,
+      store: PqcMemoryAtomicStore(),
+    );
     final targetRecovery = PqcRecoveryCoordinator(
+      allowUnauthenticatedRecoveryForTesting: true,
       vault: targetVault,
       transport: transport,
       keyProvider: keyProvider,
@@ -547,8 +693,12 @@ void main() {
   test('group rekey recovery decrypts both old and new epochs', () async {
     final transport = PqcMemoryRecoveryRepository();
     const keyProvider = _FixedRecoveryKeyProvider(27);
-    final sourceVault = PqcIntegrityKeyVault(store: PqcMemoryAtomicStore());
+    final sourceVault = PqcIntegrityKeyVault(
+      allowInsecureStoreForTesting: true,
+      store: PqcMemoryAtomicStore(),
+    );
     final sourceRecovery = PqcRecoveryCoordinator(
+      allowUnauthenticatedRecoveryForTesting: true,
       vault: sourceVault,
       transport: transport,
       keyProvider: keyProvider,
@@ -589,8 +739,12 @@ void main() {
       epoch: newEpoch,
     );
 
-    final restoredVault = PqcIntegrityKeyVault(store: PqcMemoryAtomicStore());
+    final restoredVault = PqcIntegrityKeyVault(
+      allowInsecureStoreForTesting: true,
+      store: PqcMemoryAtomicStore(),
+    );
     final restoredRecovery = PqcRecoveryCoordinator(
+      allowUnauthenticatedRecoveryForTesting: true,
       vault: restoredVault,
       transport: transport,
       keyProvider: keyProvider,
@@ -628,8 +782,12 @@ void main() {
     () async {
       final transport = PqcMemoryRecoveryRepository();
       const keyProvider = _FixedRecoveryKeyProvider(31);
-      final vault = PqcIntegrityKeyVault(store: PqcMemoryAtomicStore());
+      final vault = PqcIntegrityKeyVault(
+        allowInsecureStoreForTesting: true,
+        store: PqcMemoryAtomicStore(),
+      );
       final recovery = PqcRecoveryCoordinator(
+        allowUnauthenticatedRecoveryForTesting: true,
         vault: vault,
         transport: transport,
         keyProvider: keyProvider,
@@ -662,13 +820,17 @@ void main() {
         throwsA(isA<PqcRecoveryException>()),
       );
 
-      final conflictVault = PqcIntegrityKeyVault(store: PqcMemoryAtomicStore());
+      final conflictVault = PqcIntegrityKeyVault(
+        allowInsecureStoreForTesting: true,
+        store: PqcMemoryAtomicStore(),
+      );
       await conflictVault.saveDeviceKeyset(
         accountId: accountId,
         keyset: engine.generateDeviceKeyset('second-phone'),
         makeCurrent: true,
       );
       final conflictRecovery = PqcRecoveryCoordinator(
+        allowUnauthenticatedRecoveryForTesting: true,
         vault: conflictVault,
         transport: _ConflictingRecoveryTransport(),
         keyProvider: keyProvider,
@@ -689,8 +851,12 @@ void main() {
   test('recovery rejects a wrong master key and equal-revision fork', () async {
     final transport = PqcMemoryRecoveryRepository();
     const keyProvider = _FixedRecoveryKeyProvider(51);
-    final firstVault = PqcIntegrityKeyVault(store: PqcMemoryAtomicStore());
+    final firstVault = PqcIntegrityKeyVault(
+      allowInsecureStoreForTesting: true,
+      store: PqcMemoryAtomicStore(),
+    );
     final firstRecovery = PqcRecoveryCoordinator(
+      allowUnauthenticatedRecoveryForTesting: true,
       vault: firstVault,
       transport: transport,
       keyProvider: keyProvider,
@@ -719,13 +885,17 @@ void main() {
       ),
     );
 
-    final forkVault = PqcIntegrityKeyVault(store: PqcMemoryAtomicStore());
+    final forkVault = PqcIntegrityKeyVault(
+      allowInsecureStoreForTesting: true,
+      store: PqcMemoryAtomicStore(),
+    );
     await forkVault.saveDeviceKeyset(
       accountId: accountId,
       keyset: engine.generateDeviceKeyset('fork-phone'),
       makeCurrent: true,
     );
     final forkRecovery = PqcRecoveryCoordinator(
+      allowUnauthenticatedRecoveryForTesting: true,
       vault: forkVault,
       transport: transport,
       keyProvider: keyProvider,
@@ -820,9 +990,13 @@ void main() {
     'health monitor blocks writer until key and recovery are durable',
     () async {
       final health = PqcCryptoHealthMonitor();
-      final vault = PqcIntegrityKeyVault(store: PqcMemoryAtomicStore());
+      final vault = PqcIntegrityKeyVault(
+        allowInsecureStoreForTesting: true,
+        store: PqcMemoryAtomicStore(),
+      );
       final writer = PqcV25Writer();
       final recovery = PqcRecoveryCoordinator(
+        allowUnauthenticatedRecoveryForTesting: true,
         vault: vault,
         transport: PqcMemoryRecoveryRepository(),
         keyProvider: const _FixedRecoveryKeyProvider(41),

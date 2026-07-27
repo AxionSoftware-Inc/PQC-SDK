@@ -18,15 +18,19 @@
 
 ## Required host controls
 
-The host `PqcAtomicStore` must encrypt records at rest and implement
-compare-and-set as one durable transaction. The SDK validates checksums and
-ordering but cannot make a broken platform adapter atomic. Publishing a public
-key before `PqcSecureRuntime.rotateDeviceKeyset` completes can create history
-loss and is forbidden.
+Production hosts must implement `PqcProductionAtomicStore`. The SDK refuses to
+construct a production vault unless the adapter declares encrypted-at-rest,
+hardware-backed key protection and atomic durability. Ciphertext and its master
+key must never share the same preferences/database namespace. Test-only memory
+stores require the explicit `allowInsecureStoreForTesting` switch and that
+switch is rejected in Dart product mode.
 
 The host must protect the 32-byte recovery master key and implement a
-conditional recovery transport. The recovery server receives only an
-authenticated encrypted envelope, its revision and SHA-256 value.
+conditional recovery transport. `PqcRecoveryCoordinator` additionally requires
+a `PqcRecoveryAccessAuthorizer` which validates a fresh, device-bound,
+short-lived proof for recovery reads and writes. A normal login token alone is
+not sufficient. The recovery server receives only an authenticated encrypted
+envelope, its revision and SHA-256 value.
 
 Use `PqcAtomicReplayStore` with a durable adapter before presenting newly
 received plaintext. Duplicate ciphertext is classified separately from reuse

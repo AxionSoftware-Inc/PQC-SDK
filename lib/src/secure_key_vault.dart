@@ -59,6 +59,19 @@ abstract interface class PqcAtomicStore {
   });
 }
 
+/// Security properties that a production persistence adapter must guarantee.
+///
+/// Implement this interface only when the record is encrypted with a key that
+/// is not stored beside the ciphertext (Android Keystore, Apple Keychain,
+/// hardware-backed WebCrypto/HSM, or an equivalent platform facility).
+abstract interface class PqcProductionAtomicStore implements PqcAtomicStore {
+  bool get encryptedAtRest;
+
+  bool get hardwareBackedKeyProtection;
+
+  bool get atomicDurability;
+}
+
 /// Deterministic implementation for tests, CLI tools and host prototypes.
 class PqcMemoryAtomicStore implements PqcAtomicStore {
   final Map<String, PqcAtomicRecord> _records = {};
@@ -215,13 +228,36 @@ class PqcIntegrityKeyVault implements PqcKeyVaultRepository {
     required PqcAtomicStore store,
     PqcKeyContinuityGuard? continuityGuard,
     this.maxCompareAndSetAttempts = 8,
-  }) : _store = store,
+    bool allowInsecureStoreForTesting = false,
+  }) : _store = _validatedStore(
+         store,
+         allowInsecureStoreForTesting: allowInsecureStoreForTesting,
+       ),
        _continuityGuard = continuityGuard ?? const PqcKeyContinuityGuard();
 
   static const storageNamespace = 'pqc-engine-sdk.key-vault.v1';
   final PqcAtomicStore _store;
   final PqcKeyContinuityGuard _continuityGuard;
   final int maxCompareAndSetAttempts;
+
+  static PqcAtomicStore _validatedStore(
+    PqcAtomicStore store, {
+    required bool allowInsecureStoreForTesting,
+  }) {
+    const productMode = bool.fromEnvironment('dart.vm.product');
+    if (store case final PqcProductionAtomicStore production
+        when production.encryptedAtRest &&
+            production.hardwareBackedKeyProtection &&
+            production.atomicDurability) {
+      return store;
+    }
+    if (allowInsecureStoreForTesting && !productMode) return store;
+    throw const PqcVaultException(
+      PqcVaultFailure.unavailable,
+      'Production key storage must provide encrypted-at-rest, hardware-backed '
+      'key protection and atomic durability.',
+    );
+  }
 
   @override
   Future<PqcDeviceKeyset?> readCurrentDeviceKeyset(String accountId) async {

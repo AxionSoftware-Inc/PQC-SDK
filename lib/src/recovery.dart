@@ -14,6 +14,20 @@ enum PqcRecoveryFailure {
   wrongAccount,
   invalidKey,
   revisionConflict,
+  authorizationRequired,
+}
+
+enum PqcRecoveryOperation { read, write }
+
+/// Host authorization boundary for recovery access.
+///
+/// Implementations must validate a fresh, device-bound, short-lived proof.
+/// A normal long-lived session token alone is not sufficient.
+abstract interface class PqcRecoveryAccessAuthorizer {
+  Future<void> authorize({
+    required String accountId,
+    required PqcRecoveryOperation operation,
+  });
 }
 
 class PqcRecoveryException implements Exception {
@@ -236,16 +250,45 @@ class PqcRecoveryCoordinator {
     required this.keyProvider,
     PqcRecoveryEnvelopeCodec? codec,
     PqcCryptoHealthMonitor? healthMonitor,
+    PqcRecoveryAccessAuthorizer? authorizer,
+    bool allowUnauthenticatedRecoveryForTesting = false,
   }) : codec = codec ?? PqcRecoveryEnvelopeCodec(),
-       healthMonitor = healthMonitor ?? PqcCryptoHealthMonitor();
+       healthMonitor = healthMonitor ?? PqcCryptoHealthMonitor(),
+       _authorizer = _validatedAuthorizer(
+         authorizer,
+         allowUnauthenticatedRecoveryForTesting:
+             allowUnauthenticatedRecoveryForTesting,
+       );
 
   final PqcKeyVaultRepository vault;
   final PqcRecoveryRepository transport;
   final PqcRecoveryKeyProvider keyProvider;
   final PqcRecoveryEnvelopeCodec codec;
   final PqcCryptoHealthMonitor healthMonitor;
+  final PqcRecoveryAccessAuthorizer? _authorizer;
+
+  static PqcRecoveryAccessAuthorizer? _validatedAuthorizer(
+    PqcRecoveryAccessAuthorizer? authorizer, {
+    required bool allowUnauthenticatedRecoveryForTesting,
+  }) {
+    const productMode = bool.fromEnvironment('dart.vm.product');
+    if (authorizer != null) return authorizer;
+    if (allowUnauthenticatedRecoveryForTesting && !productMode) return null;
+    throw const PqcRecoveryException(
+      PqcRecoveryFailure.authorizationRequired,
+      'Recovery requires a fresh device-bound authorization provider.',
+    );
+  }
+
+  Future<void> _authorize(
+    String accountId,
+    PqcRecoveryOperation operation,
+  ) async {
+    await _authorizer?.authorize(accountId: accountId, operation: operation);
+  }
 
   Future<bool> restoreLatest(String accountId) async {
+    await _authorize(accountId, PqcRecoveryOperation.read);
     final remote = await transport.downloadLatestEncryptedSnapshot(accountId);
     if (remote == null) {
       healthMonitor.report(PqcHealthIssue.recoveryUnavailable, blocking: false);
@@ -272,6 +315,7 @@ class PqcRecoveryCoordinator {
 
   /// Reconciles local and remote revisions without allowing a downgrade.
   Future<void> synchronize(String accountId) async {
+    await _authorize(accountId, PqcRecoveryOperation.read);
     final local = await vault.exportSnapshot(accountId);
     final remote = await transport.downloadLatestEncryptedSnapshot(accountId);
     if (!local.hasAnyKeyMaterial) {
@@ -318,6 +362,7 @@ class PqcRecoveryCoordinator {
     PqcKeyVaultSnapshot local, {
     required int? expectedRemoteRevision,
   }) async {
+    await _authorize(accountId, PqcRecoveryOperation.write);
     if (local.revision < 1) {
       throw const PqcRecoveryException(
         PqcRecoveryFailure.revisionConflict,
