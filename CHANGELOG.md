@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0
+
+- Frozen the standalone V3 SDK surface: V3 private/group/attachment codecs,
+  V2 history compatibility, recovery retry, health gate, replay protection and
+  canonical release bundles.
+- V3 writer remains closed by default and can only be returned after explicit
+  host opt-in plus remote capability negotiation.
+
+## 0.3.0-dev.3
+
+- Completed V3 recovery coverage with automatic reinstall retry for
+  recipient-addressed attachments.
+- Added V3 mixed-version, writer-gate and group membership-change regression
+  tests; a removed member retains only the history addressed to its device.
+
 ## 0.3.0-dev.2
 
 - Added canonical V2.5 and V3 engine bundles so host applications cannot

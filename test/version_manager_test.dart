@@ -155,6 +155,73 @@ void main() {
     expect(writer, same(v3));
   });
 
+  test(
+    'V3 bundle reads V2 history but a V2 decoder rejects V3 payloads',
+    () async {
+      final bundle = PqcEngineBundles.v3(writerEnabled: true);
+      final v3 = bundle.writer as PqcV3Engine;
+      final v2 = PqcV2Engine();
+      final sender = v3.generateDeviceKeyset('mixed-sender');
+      final recipient = v3.generateDeviceKeyset('mixed-recipient');
+      const conversation = PqcConversation(id: 87, type: 'private');
+      final v3Payload = await v3.private.encrypt(
+        conversation: conversation,
+        messageId: 'mixed-v3',
+        plaintext: 'new wire',
+        sender: sender,
+        recipientDevices: [recipient.publicKey],
+      );
+      final legacyAttempt = await v2.decryptPrivate(
+        conversation: conversation,
+        payload: v3Payload,
+        localKeysets: [recipient],
+        trustedSigningKeysByDevice: _trust(sender),
+      );
+      expect(
+        (legacyAttempt as PqcDecodeError).failure,
+        PqcDecodeFailure.unsupported,
+      );
+
+      final v2Payload = await v2.private.encrypt(
+        conversation: conversation,
+        plaintext: 'frozen wire',
+        sender: sender,
+        recipientDevices: [recipient.publicKey],
+      );
+      final reader = bundle.manager.resolveDecoder(
+        kind: PqcConversationKind.private,
+        payload: v2Payload,
+      );
+      expect(reader, isA<PqcV2CompatibilityDecoder>());
+      final decoded = await reader.decryptPrivate(
+        conversation: conversation,
+        payload: v2Payload,
+        localKeysets: [recipient],
+        trustedSigningKeysByDevice: _trust(sender),
+      );
+      expect((decoded as PqcDecoded).plaintext, 'frozen wire');
+    },
+  );
+
+  test('V3 bundle keeps its writer closed until the explicit gate opens', () {
+    final closed = PqcEngineBundles.v3();
+    expect(
+      () => closed.manager.requireWriter(
+        kind: PqcConversationKind.private,
+        remote: _v3Capabilities,
+      ),
+      throwsA(isA<PqcCompatibilityException>()),
+    );
+    final opened = PqcEngineBundles.v3(writerEnabled: true);
+    expect(
+      opened.manager.requireWriter(
+        kind: PqcConversationKind.group,
+        remote: _v3Capabilities,
+      ),
+      same(opened.writer),
+    );
+  });
+
   test('read-only V2 compatibility facade decrypts frozen history', () async {
     final writer = PqcV2Engine();
     final sender = writer.generateDeviceKeyset('compat-sender');
@@ -259,3 +326,16 @@ void main() {
     },
   );
 }
+
+Map<String, Set<String>> _trust(PqcDeviceKeyset keyset) => {
+  keyset.deviceId: {keyset.signingPublicKeyBase64},
+};
+
+const _v3Capabilities = PqcRemoteCapabilities(
+  privateReadPrefixes: {PqcV3Wire.privatePrefix},
+  groupReadPrefixes: {PqcV3Wire.groupPrefix},
+  privateWritePrefixes: {PqcV3Wire.privatePrefix},
+  groupWritePrefixes: {PqcV3Wire.groupPrefix},
+  attachmentCipherVersions: {PqcV3Wire.attachmentCipherVersion},
+  minimumDecoderVersion: 3,
+);

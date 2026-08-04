@@ -19,6 +19,8 @@
 - old-key retention and keyset/group-epoch rebinding rejection;
 - account-bound authenticated recovery envelopes and revision conflicts;
 - automatic key-missing restore/retry without protocol downgrade;
+- V3 attachment key-missing recovery retry without retrying authentication
+  failures;
 - health-gated writes and durable replay/message-id collision claims.
 
 ## Required host controls

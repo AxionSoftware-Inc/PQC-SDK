@@ -4,6 +4,7 @@ import 'recovery.dart';
 import 'replay_guard.dart';
 import 'secure_key_vault.dart';
 import 'v2_engine.dart';
+import 'v3_attachment_codec.dart';
 import 'version_manager.dart';
 
 class PqcDecryptRetryCoordinator {
@@ -118,6 +119,51 @@ class PqcDecryptRetryCoordinator {
   }
 }
 
+/// Automatic recovery and retry for a recipient-addressed V3 attachment.
+///
+/// A missing recipient wrap is treated as a recoverable keyset condition. Any
+/// signature, metadata or AEAD failure is deliberately not retried and never
+/// falls back to a different cipher version.
+class PqcV3AttachmentDecryptRetryCoordinator {
+  const PqcV3AttachmentDecryptRetryCoordinator({
+    required this.vault,
+    required this.recovery,
+    required this.healthMonitor,
+  });
+
+  final PqcKeyVaultRepository vault;
+  final PqcRecoveryCoordinator recovery;
+  final PqcCryptoHealthMonitor healthMonitor;
+
+  Future<PqcV3DecryptedAttachment> decrypt({
+    required String accountId,
+    required PqcConversation conversation,
+    required String payload,
+    required PqcV3AttachmentCodec codec,
+    required Map<String, Set<String>> trustedSigningKeysByDevice,
+  }) async {
+    Future<PqcV3DecryptedAttachment> attempt() async {
+      final current = await vault.readCurrentDeviceKeyset(accountId);
+      final historical = await vault.readHistoricalDeviceKeysets(accountId);
+      return codec.decryptForRecipient(
+        conversation: conversation,
+        payload: payload,
+        localKeysets: [?current, ...historical],
+        trustedSigningKeysByDevice: trustedSigningKeysByDevice,
+      );
+    }
+
+    try {
+      return await attempt();
+    } on PqcV3AttachmentKeyMissingException {
+      if (!await recovery.restoreLatest(accountId)) rethrow;
+      final restored = await attempt();
+      healthMonitor.resolve(PqcHealthIssue.currentKeyMissing);
+      return restored;
+    }
+  }
+}
+
 /// Host-neutral security orchestration around independently versioned engines.
 class PqcSecureRuntime {
   PqcSecureRuntime({
@@ -133,6 +179,11 @@ class PqcSecureRuntime {
       recovery: recovery,
       healthMonitor: this.healthMonitor,
     );
+    v3AttachmentDecryptRetry = PqcV3AttachmentDecryptRetryCoordinator(
+      vault: vault,
+      recovery: recovery,
+      healthMonitor: this.healthMonitor,
+    );
   }
 
   final PqcEngineManager manager;
@@ -141,6 +192,7 @@ class PqcSecureRuntime {
   final PqcReplayGuard replayGuard;
   final PqcCryptoHealthMonitor healthMonitor;
   late final PqcDecryptRetryCoordinator decryptRetry;
+  late final PqcV3AttachmentDecryptRetryCoordinator v3AttachmentDecryptRetry;
 
   /// Called after authentication and before messages are loaded or written.
   Future<void> initializeAccount(String accountId) async {

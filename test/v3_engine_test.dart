@@ -258,6 +258,50 @@ void main() {
         throwsA(isA<StateError>()),
       );
     });
+
+    test('membership rekey keeps old history for old members only', () async {
+      final oldPayload = await engine.group.encrypt(
+        conversation: conversation,
+        messageId: 'before-member-change',
+        plaintext: 'old membership',
+        sender: alice,
+        memberDevices: [bob.publicKey, carol.publicKey],
+        expectedMemberDevices: [bob.publicKey, carol.publicKey],
+      );
+      final newPayload = await engine.group.encrypt(
+        conversation: conversation,
+        messageId: 'after-member-change',
+        plaintext: 'new membership',
+        sender: alice,
+        memberDevices: [bob.publicKey],
+        expectedMemberDevices: [bob.publicKey],
+      );
+      Future<PqcDecodeResult> decryptFor(
+        String payload,
+        PqcDeviceKeyset recipient,
+      ) => engine.decryptGroup(
+        conversation: conversation,
+        payload: payload,
+        epochsById: const {},
+        localKeysets: [recipient],
+        trustedSigningKeysByDevice: _trust(alice),
+      );
+
+      expect(
+        (await decryptFor(oldPayload, bob) as PqcDecoded).plaintext,
+        'old membership',
+      );
+      expect(
+        (await decryptFor(newPayload, bob) as PqcDecoded).plaintext,
+        'new membership',
+      );
+      expect(
+        (await decryptFor(oldPayload, carol) as PqcDecoded).plaintext,
+        'old membership',
+      );
+      final removed = await decryptFor(newPayload, carol);
+      expect((removed as PqcDecodeError).failure, PqcDecodeFailure.keyMissing);
+    });
   });
 
   group('PQCv3 attachment codec', () {
@@ -323,6 +367,67 @@ void main() {
           trustedSigningKeysByDevice: _trust(alice),
         ),
         throwsA(isA<PqcV3AttachmentKeyMissingException>()),
+      );
+    });
+
+    test('restores a missing V3 attachment keyset after reinstall', () async {
+      const accountId = 'v3-attachment-reinstall';
+      const conversation = PqcConversation(id: 452, type: 'private');
+      const recoveryKey = _FixedRecoveryKeyProvider(73);
+      final transport = PqcMemoryRecoveryRepository();
+      final sourceVault = PqcIntegrityKeyVault(
+        allowInsecureStoreForTesting: true,
+        store: PqcMemoryAtomicStore(),
+      );
+      final sourceRecovery = PqcRecoveryCoordinator(
+        allowUnauthenticatedRecoveryForTesting: true,
+        vault: sourceVault,
+        transport: transport,
+        keyProvider: recoveryKey,
+      );
+      final recipient = engine.generateDeviceKeyset('attachment-tablet');
+      await sourceVault.saveDeviceKeyset(
+        accountId: accountId,
+        keyset: recipient,
+        makeCurrent: true,
+      );
+      await sourceRecovery.synchronize(accountId);
+      final payload = await engine.attachment.encryptForRecipients(
+        attachmentId: 'restore-attachment',
+        conversation: conversation,
+        bytes: utf8.encode('restored attachment bytes'),
+        filename: 'restore.pdf',
+        mimeType: 'application/pdf',
+        sender: alice,
+        recipientDevices: [recipient.publicKey],
+      );
+
+      final reinstalledVault = PqcIntegrityKeyVault(
+        allowInsecureStoreForTesting: true,
+        store: PqcMemoryAtomicStore(),
+      );
+      final reinstalledRecovery = PqcRecoveryCoordinator(
+        allowUnauthenticatedRecoveryForTesting: true,
+        vault: reinstalledVault,
+        transport: transport,
+        keyProvider: recoveryKey,
+      );
+      final retry = PqcV3AttachmentDecryptRetryCoordinator(
+        vault: reinstalledVault,
+        recovery: reinstalledRecovery,
+        healthMonitor: reinstalledRecovery.healthMonitor,
+      );
+      final restored = await retry.decrypt(
+        accountId: accountId,
+        conversation: conversation,
+        payload: payload,
+        codec: engine.attachment,
+        trustedSigningKeysByDevice: _trust(alice),
+      );
+      expect(utf8.decode(restored.bytes), 'restored attachment bytes');
+      expect(
+        (await reinstalledVault.readCurrentDeviceKeyset(accountId))?.keysetId,
+        recipient.keysetId,
       );
     });
   });

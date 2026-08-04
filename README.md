@@ -106,13 +106,9 @@ sender's own device is always included, so a restored historical keyset can
 read sent history after reinstall.
 
 ```dart
-final v3 = PqcV3Engine();
-final manager = PqcEngineManager(
-  decoders: [PqcV2CompatibilityDecoder(), v3],
-  activeWriter: v3,
-  writerEnabled: true,
-  releaseProfile: PqcReleaseProfiles.v3,
-);
+final bundle = PqcEngineBundles.v3(writerEnabled: true);
+final manager = bundle.manager;
+final v3 = bundle.writer as PqcV3Engine;
 ```
 
 The V2 compatibility facade is reader-only. A failed V3 authentication check
@@ -125,6 +121,11 @@ method. The high-level method gives every recipient device (and the sender) an
 ML-KEM-wrapped file key and signs the attachment metadata. The low-level method
 is intentionally available for storage formats that already carry an
 authenticated recipient key envelope.
+
+`PqcSecureRuntime.v3AttachmentDecryptRetry` automatically restores an
+account-scoped snapshot and retries only when the recipient keyset is missing.
+An invalid signature, a changed filename/MIME/size, or invalid AES-GCM data is
+not retried and never falls back to V2.
 
 ## Secure runtime
 
@@ -179,7 +180,8 @@ The integrating application is responsible for:
 11. upload/download streaming, retries and attachment size policy;
 12. keeping logs free of plaintext and secret key material.
 
-See [SECURITY.md](SECURITY.md) and [MIGRATION.md](MIGRATION.md).
+See [SECURITY.md](SECURITY.md), [MIGRATION.md](MIGRATION.md) and
+[RELEASES.md](RELEASES.md).
 
 ## Verification
 

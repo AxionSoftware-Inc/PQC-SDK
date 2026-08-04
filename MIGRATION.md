@@ -20,6 +20,13 @@ adapter package. UI, HTTP and platform storage do not enter the engine SDK.
    `pqc:v3`/`group:v3` and `attachment:v3`.
 8. Roll back by closing the writer gate; keep the decoder registered.
 
+For V3 groups, obtain the complete current member-device list from the host's
+membership service and pass it as `expectedMemberDevices`. The SDK validates
+that every intended device receives a signed recipient wrap before encryption.
+After a membership change, write a new V3 group payload with the new device
+set; old payloads remain decryptable only for devices that were covered by
+their historical envelope.
+
 ## Adapter boundaries
 
 - API models -> `PqcDevicePublicKey`
