@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0-dev.1
+
+- Added an independent V3 ML-KEM-768 recipient-wrap envelope, ML-DSA-65
+  signature verification, AES-256-GCM content encryption and strict
+  conversation binding.
+- Added V3 private, group and metadata-authenticated attachment codecs without
+  Flutter, HTTP, storage or server dependencies.
+- Added a signed recipient-addressed V3 attachment key envelope and optional
+  host-supplied group member-device coverage validation.
+- Added the V3 release profile: V3 writer only, with a retained read-only V2
+  compatibility decoder and explicit capability gate.
+- Added V3 private/group/key-rotation/tamper/attachment/version-manager
+  regression coverage.
+
 ## 0.2.6
 
 - Made production key storage fail closed unless the host proves encrypted,

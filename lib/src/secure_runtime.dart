@@ -66,6 +66,7 @@ class PqcDecryptRetryCoordinator {
     required String accountId,
     required PqcConversation conversation,
     required String payload,
+    Map<String, Set<String>> trustedSigningKeysByDevice = const {},
   }) async {
     PqcEngine decoder;
     try {
@@ -85,17 +86,25 @@ class PqcDecryptRetryCoordinator {
     }
 
     Future<PqcDecodeResult> attempt() async {
-      final epoch = await vault.readGroupEpoch(
-        accountId: accountId,
-        conversationId: conversation.id,
-        epochId: metadata.epochId,
-      );
       final epochs = <String, PqcGroupEpoch>{};
-      if (epoch != null) epochs[epoch.epochId] = epoch;
+      // Frozen V2 group payloads use an epoch id.  V3 group payloads use
+      // recipient-device key wraps and intentionally expose an empty epoch id.
+      if (metadata.epochId.isNotEmpty) {
+        final epoch = await vault.readGroupEpoch(
+          accountId: accountId,
+          conversationId: conversation.id,
+          epochId: metadata.epochId,
+        );
+        if (epoch != null) epochs[epoch.epochId] = epoch;
+      }
+      final current = await vault.readCurrentDeviceKeyset(accountId);
+      final historical = await vault.readHistoricalDeviceKeysets(accountId);
       return decoder.decryptGroup(
         conversation: conversation,
         payload: payload,
         epochsById: epochs,
+        localKeysets: [?current, ...historical],
+        trustedSigningKeysByDevice: trustedSigningKeysByDevice,
       );
     }
 

@@ -14,6 +14,20 @@ abstract final class PqcV2Wire {
   static const attachmentCipherVersion = 'attachment:v2';
 }
 
+/// Immutable wire contract for the independently versioned V3 engine.
+///
+/// V3 deliberately has a different prefix from V2.  A receiver therefore
+/// chooses a decoder from the authenticated payload format before it attempts
+/// any cryptographic operation; it must never "try V2" after a V3 failure.
+abstract final class PqcV3Wire {
+  static const protocolVersion = 3;
+  static const privatePrefix = 'pqc:v3';
+  static const groupPrefix = 'group:v3';
+  static const attachmentCipherVersion = 'attachment:v3';
+  static const privateAlgorithm = 'ml-kem-768+a256gcm+ml-dsa-65';
+  static const groupAlgorithm = 'ml-kem-768+recipient-wraps+a256gcm+ml-dsa-65';
+}
+
 class PqcConversation {
   const PqcConversation({required this.id, required this.type});
 

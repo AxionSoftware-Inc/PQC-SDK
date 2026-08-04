@@ -12,6 +12,7 @@ class PqcWireProtocol {
 
 abstract final class PqcWireProtocols {
   static const v2 = PqcWireProtocol(id: 'v2', version: 2);
+  static const v3 = PqcWireProtocol(id: 'v3', version: 3);
 }
 
 class PqcEngineReleaseProfile {
@@ -42,6 +43,16 @@ abstract final class PqcReleaseProfiles {
     wireProtocol: PqcWireProtocols.v2,
     activeWriterEngineId: 'pqc-v2.5-writer',
     requiredDecoderIds: {'pqc-v2'},
+  );
+
+  /// V3 writes only its own wire format but permanently retains the frozen V2
+  /// decoder.  The release profile is intentionally separate from V2.5: an
+  /// application chooses one profile, it does not silently downgrade writes.
+  static const v3 = PqcEngineReleaseProfile(
+    releaseId: '3.0.0',
+    wireProtocol: PqcWireProtocols.v3,
+    activeWriterEngineId: 'pqc-v3',
+    requiredDecoderIds: {'pqc-v2', 'pqc-v3'},
   );
 }
 

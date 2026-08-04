@@ -9,9 +9,12 @@ UI, HTTP, login, database, file-system or platform-storage dependency.
 - ML-KEM-768 recipient key wrapping
 - ML-DSA-65 sender signatures
 - AES-256-GCM content encryption
-- frozen PQCv2 private-message reader/writer
+- frozen PQCv2 private-message reader/writer and a read-only compatibility facade
+- dedicated V2.5 writer profile (`releaseId: 2.5.0`, immutable `v2` wire)
+- independent PQCv3 private/group recipient-wrap reader/writer
 - frozen PQCv2 group-message and group-epoch reader/writer
 - byte-oriented PQCv2 attachment encryption
+- V3 metadata-authenticated attachment encryption with recipient-device key wraps
 - historical keyset decoding
 - explicit protocol registry and production write gate
 - capability negotiation checks
@@ -39,7 +42,7 @@ dependencies:
   pqc_engine_sdk:
     git:
       url: git@github.com:AxionSoftware-Inc/PQC-SDK.git
-      ref: sdk-v2.5.0-freeze
+      ref: sdk-v3.0.0-dev.1
 ```
 
 For paid distribution, grant repository access to licensed customers or
@@ -50,7 +53,7 @@ publish the same tagged package to a private Dart package registry.
 ```dart
 import 'package:pqc_engine_sdk/pqc_engine_sdk.dart';
 
-final decoder = PqcV2Engine();
+final decoder = PqcV2CompatibilityDecoder();
 final writer = PqcV25Writer();
 final alice = writer.primitives.generateDeviceKeyset('alice-phone');
 
@@ -61,7 +64,7 @@ final payload = await writer.private.encrypt(
   recipientDevices: [bobPublicKey],
 );
 
-final result = await engine.private.decrypt(
+final result = await decoder.decryptPrivate(
   conversation: const PqcConversation(id: 42, type: 'private'),
   payload: payload,
   localKeysets: [bobCurrentKeyset, ...bobHistoricalKeysets],
@@ -96,6 +99,35 @@ different protocol after authentication fails.
 `releaseId: 2.5.0` and `wireProtocol: v2` are independent values. V2.5 writes
 immutable `pqc:v2` / `group:v2` payloads through its dedicated writer while
 the frozen V2 decoder remains permanently registered for history.
+
+## V3 profile and migration
+
+V3 does **not** reuse the V2 writer. Its `pqc:v3` / `group:v3` envelope signs
+the conversation and message binding, encrypts the content with AES-256-GCM,
+and ML-KEM-wraps the content key separately for every recipient device. The
+sender's own device is always included, so a restored historical keyset can
+read sent history after reinstall.
+
+```dart
+final v3 = PqcV3Engine();
+final manager = PqcEngineManager(
+  decoders: [PqcV2CompatibilityDecoder(), v3],
+  activeWriter: v3,
+  writerEnabled: true,
+  releaseProfile: PqcReleaseProfiles.v3,
+);
+```
+
+The V2 compatibility facade is reader-only. A failed V3 authentication check
+is never retried as V2. Before enabling V3 writes, the server and recipients
+must advertise the V3 private/group prefixes and `attachment:v3` capability.
+
+For a transportable V3 attachment, use
+`PqcV3AttachmentCodec.encryptForRecipients`, not the low-level `encrypt`
+method. The high-level method gives every recipient device (and the sender) an
+ML-KEM-wrapped file key and signs the attachment metadata. The low-level method
+is intentionally available for storage formats that already carry an
+authenticated recipient key envelope.
 
 ## Secure runtime
 
@@ -144,10 +176,11 @@ The integrating application is responsible for:
 5. maintaining trusted current and historical signing public keys;
 6. supplying a protected 32-byte account recovery key;
 7. implementing conditional recovery upload for race-free server sync;
-8. persisting group epochs before acknowledging group messages;
-9. assigning stable unique message ids before using the replay guard;
-10. upload/download streaming, retries and attachment size policy;
-11. keeping logs free of plaintext and secret key material.
+8. persisting V2 group epochs before acknowledging V2 group messages;
+9. providing trusted sender signing keys to V3 private/group decrypt calls;
+10. assigning stable unique message ids before using the replay guard;
+11. upload/download streaming, retries and attachment size policy;
+12. keeping logs free of plaintext and secret key material.
 
 See [SECURITY.md](SECURITY.md) and [MIGRATION.md](MIGRATION.md).
 

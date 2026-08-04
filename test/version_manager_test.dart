@@ -115,4 +115,65 @@ void main() {
       throwsArgumentError,
     );
   });
+
+  test('V3 profile retains V2 reader but has only the V3 writer', () {
+    final v3 = PqcV3Engine();
+    final manager = PqcEngineManager(
+      decoders: [PqcV2CompatibilityDecoder(), v3],
+      activeWriter: v3,
+      writerEnabled: true,
+      releaseProfile: PqcReleaseProfiles.v3,
+    );
+    expect(manager.releaseId, '3.0.0');
+    expect(
+      manager
+          .resolveDecoder(
+            kind: PqcConversationKind.private,
+            payload: '${PqcV2Wire.privatePrefix}:history',
+          )
+          .engineId,
+      'pqc-v2',
+    );
+    expect(
+      manager.resolveDecoder(
+        kind: PqcConversationKind.private,
+        payload: '${PqcV3Wire.privatePrefix}:new-message',
+      ),
+      same(v3),
+    );
+    final writer = manager.requireWriter(
+      kind: PqcConversationKind.private,
+      remote: const PqcRemoteCapabilities(
+        privateReadPrefixes: {PqcV3Wire.privatePrefix},
+        groupReadPrefixes: {PqcV3Wire.groupPrefix},
+        privateWritePrefixes: {PqcV3Wire.privatePrefix},
+        groupWritePrefixes: {PqcV3Wire.groupPrefix},
+        attachmentCipherVersions: {PqcV3Wire.attachmentCipherVersion},
+        minimumDecoderVersion: 3,
+      ),
+    );
+    expect(writer, same(v3));
+  });
+
+  test('read-only V2 compatibility facade decrypts frozen history', () async {
+    final writer = PqcV2Engine();
+    final sender = writer.generateDeviceKeyset('compat-sender');
+    final recipient = writer.generateDeviceKeyset('compat-recipient');
+    final payload = await writer.private.encrypt(
+      conversation: const PqcConversation(id: 91, type: 'private'),
+      plaintext: 'frozen history',
+      sender: sender,
+      recipientDevices: [recipient.publicKey],
+    );
+    final reader = PqcV2CompatibilityDecoder();
+    final result = await reader.decryptPrivate(
+      conversation: const PqcConversation(id: 91, type: 'private'),
+      payload: payload,
+      localKeysets: [recipient],
+      trustedSigningKeysByDevice: {
+        sender.deviceId: {sender.signingPublicKeyBase64},
+      },
+    );
+    expect((result as PqcDecoded).plaintext, 'frozen history');
+  });
 }

@@ -12,4 +12,11 @@ void main() {
     expect(PqcV2Wire.groupEnvelopeAlgorithm, 'group-ml-kem-768-aesgcm-v2');
     expect(PqcV2Wire.attachmentCipherVersion, 'attachment:v2');
   });
+
+  test('PQCv3 wire contract remains independent from frozen V2', () {
+    expect(PqcV3Wire.protocolVersion, 3);
+    expect(PqcV3Wire.privatePrefix, 'pqc:v3');
+    expect(PqcV3Wire.groupPrefix, 'group:v3');
+    expect(PqcV3Wire.attachmentCipherVersion, 'attachment:v3');
+  });
 }

@@ -7,7 +7,7 @@ adapter package. UI, HTTP and platform storage do not enter the engine SDK.
 
 1. Add the package by an immutable Git tag.
 2. Implement `PqcKeyRepository` over the application's secure storage.
-3. Import the current keyset and every historical V2 keyset without changing
+3. Import the current keyset and every historical V2/V3 keyset without changing
    bytes or keyset ids.
 4. Build the trusted signing-key map from current and historical device
    records.
@@ -15,8 +15,9 @@ adapter package. UI, HTTP and platform storage do not enter the engine SDK.
    frozen production decoder.
 6. Exercise reinstall, relogin, account switch, key rotation, device revoke
    and group rekey recovery tests.
-7. Enable the writer only after the server advertises all required
-   capabilities.
+7. Enable the selected writer only after the server advertises all required
+   capabilities. V2.5 requires `pqc:v2`/`group:v2`; V3 requires
+   `pqc:v3`/`group:v3` and `attachment:v3`.
 8. Roll back by closing the writer gate; keep the decoder registered.
 
 ## Adapter boundaries
@@ -27,5 +28,7 @@ adapter package. UI, HTTP and platform storage do not enter the engine SDK.
 - chat model -> `PqcConversation`
 - backend capability response -> `PqcRemoteCapabilities`
 
-The SDK does not migrate V2 keys into new cryptographic bytes. A future V3
-engine must have its own writer and decoder while retaining this V2 decoder.
+The SDK never migrates V2 keys into new cryptographic bytes. V3 owns an
+independent writer/decoder and retains the V2 compatibility decoder as a
+strictly read-only component. A V3 authentication failure is not tried with a
+V2 decoder.

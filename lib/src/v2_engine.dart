@@ -30,6 +30,8 @@ abstract interface class PqcEngine {
     required PqcConversation conversation,
     required String payload,
     required Map<String, PqcGroupEpoch> epochsById,
+    Iterable<PqcDeviceKeyset> localKeysets = const [],
+    Map<String, Set<String>> trustedSigningKeysByDevice = const {},
   });
 }
 
@@ -99,6 +101,8 @@ class PqcV2Engine implements PqcEngine {
     required PqcConversation conversation,
     required String payload,
     required Map<String, PqcGroupEpoch> epochsById,
+    Iterable<PqcDeviceKeyset> localKeysets = const [],
+    Map<String, Set<String>> trustedSigningKeysByDevice = const {},
   }) => group.decrypt(
     conversation: conversation,
     payload: payload,

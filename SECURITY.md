@@ -6,6 +6,11 @@
 - sender-signature verification against host-supplied trust records;
 - recipient device and keyset binding;
 - authenticated content and attachment chunks;
+- V3 per-recipient ML-KEM content-key wraps, including the sender device;
+- V3 attachment file-key wraps with authenticated filename, MIME type and
+  plaintext-size metadata;
+- V3 ML-DSA-65 signed envelope binding for conversation, message, sender and
+  keyset metadata;
 - historical private-key decoding;
 - explicit missing-key, untrusted-sender, binding and corruption outcomes;
 - no protocol fallback after a recognized payload fails authentication;
@@ -42,9 +47,10 @@ error category and non-secret correlation id.
 
 ## Cryptographic changes
 
-PQCv2 constants and serialization are frozen. Changing a prefix, algorithm
-label, field, field order, signing context, HKDF input or nonce derivation
-requires a new engine version and decoder. Never silently mutate V2.
+PQCv2 constants and serialization are frozen. V3 has a separately versioned
+envelope and attachment cipher. Changing a prefix, algorithm label, field,
+field order, signing context, HKDF input or nonce derivation requires a new
+engine version and decoder. Never silently mutate a released wire format.
 
 Security reports: contact the repository owner through a private channel. Do
 not open a public issue containing keys or production payloads.
