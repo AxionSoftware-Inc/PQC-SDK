@@ -79,12 +79,9 @@ payload.
 ## Production writer gate
 
 ```dart
-final manager = PqcEngineManager(
-  decoders: [PqcV2Engine()], // frozen history reader
-  activeWriter: PqcV25Writer(),
-  writerEnabled: true,
-  releaseProfile: PqcReleaseProfiles.v25,
-);
+final bundle = PqcEngineBundles.v25(writerEnabled: true);
+final manager = bundle.manager;
+final writer = bundle.writer as PqcV25Writer;
 
 final writer = manager.requireWriter(
   kind: PqcConversationKind.private,

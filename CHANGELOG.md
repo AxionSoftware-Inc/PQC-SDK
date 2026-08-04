@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0-dev.2
+
+- Added canonical V2.5 and V3 engine bundles so host applications cannot
+  accidentally omit the frozen V2 compatibility reader or select the wrong
+  active writer.
+- Added direct V2.5 private, group, attachment and capability-gate coverage
+  using the canonical bundle.
+
 ## 0.3.0-dev.1
 
 - Added an independent V3 ML-KEM-768 recipient-wrap envelope, ML-DSA-65

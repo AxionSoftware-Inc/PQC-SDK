@@ -4,6 +4,7 @@ export 'src/models.dart';
 export 'src/key_repository.dart';
 export 'src/key_continuity.dart';
 export 'src/health_monitor.dart';
+export 'src/engine_bundles.dart';
 export 'src/primitives.dart';
 export 'src/recovery.dart';
 export 'src/replay_guard.dart';

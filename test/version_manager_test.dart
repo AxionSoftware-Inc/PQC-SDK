@@ -176,4 +176,86 @@ void main() {
     );
     expect((result as PqcDecoded).plaintext, 'frozen history');
   });
+
+  test(
+    'V2.5 bundle fixes the reader/writer boundary and all V2 wire codecs',
+    () async {
+      final bundle = PqcEngineBundles.v25(writerEnabled: true);
+      final writer = bundle.writer as PqcV25Writer;
+      final reader = bundle.decoders.single;
+      expect(reader, isA<PqcV2CompatibilityDecoder>());
+      expect(reader.engineId, 'pqc-v2');
+      expect(writer.engineId, 'pqc-v2.5-writer');
+      expect(bundle.manager.releaseProfile, same(PqcReleaseProfiles.v25));
+
+      final sender = writer.generateDeviceKeyset('bundle-sender');
+      final recipient = writer.generateDeviceKeyset('bundle-recipient');
+      const privateConversation = PqcConversation(id: 92, type: 'private');
+      final privatePayload = await writer.private.encrypt(
+        conversation: privateConversation,
+        plaintext: 'V2.5 private',
+        sender: sender,
+        recipientDevices: [recipient.publicKey],
+      );
+      final privateResult = await bundle.manager
+          .resolveDecoder(
+            kind: PqcConversationKind.private,
+            payload: privatePayload,
+          )
+          .decryptPrivate(
+            conversation: privateConversation,
+            payload: privatePayload,
+            localKeysets: [recipient],
+            trustedSigningKeysByDevice: {
+              sender.deviceId: {sender.signingPublicKeyBase64},
+            },
+          );
+      expect((privateResult as PqcDecoded).plaintext, 'V2.5 private');
+
+      const groupConversation = PqcConversation(id: 93, type: 'group');
+      final epoch = PqcGroupEpoch(
+        epochId: 'bundle-epoch',
+        secretKeyBytes: writer.primitives.randomBytes(32),
+      );
+      final groupPayload = await writer.group.encrypt(
+        conversation: groupConversation,
+        plaintext: 'V2.5 group',
+        epoch: epoch,
+      );
+      final groupResult = await bundle.manager
+          .resolveDecoder(
+            kind: PqcConversationKind.group,
+            payload: groupPayload,
+          )
+          .decryptGroup(
+            conversation: groupConversation,
+            payload: groupPayload,
+            epochsById: {epoch.epochId: epoch},
+          );
+      expect((groupResult as PqcDecoded).plaintext, 'V2.5 group');
+
+      final descriptor = writer.attachment.generateDescriptor();
+      final encrypted = await writer.attachment.encryptChunk(
+        plaintext: [1, 2, 3, 4],
+        descriptor: descriptor,
+        chunkIndex: 0,
+      );
+      expect(
+        await writer.attachment.decryptChunk(
+          ciphertext: encrypted.ciphertext,
+          descriptor: descriptor,
+          chunkIndex: 0,
+        ),
+        [1, 2, 3, 4],
+      );
+
+      expect(
+        bundle.manager.requireWriter(
+          kind: PqcConversationKind.private,
+          remote: capabilities,
+        ),
+        same(writer),
+      );
+    },
+  );
 }
