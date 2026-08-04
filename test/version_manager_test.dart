@@ -244,6 +244,15 @@ void main() {
     expect((result as PqcDecoded).plaintext, 'frozen history');
   });
 
+  test('V2 bundle keeps the frozen V2 writer and wire profile together', () {
+    final bundle = PqcEngineBundles.v2(writerEnabled: true);
+
+    expect(bundle.writer, isA<PqcV2Engine>());
+    expect(bundle.decoders, hasLength(1));
+    expect(bundle.decoders.single, same(bundle.writer));
+    expect(bundle.manager.releaseProfile, same(PqcReleaseProfiles.v2));
+  });
+
   test(
     'V2.5 bundle fixes the reader/writer boundary and all V2 wire codecs',
     () async {

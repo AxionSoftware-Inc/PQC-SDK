@@ -5,11 +5,13 @@ Do not change a released wire contract in place.
 
 | SDK release profile | Active writer | Read-only history decoders | Wire format |
 | --- | --- | --- | --- |
+| `PqcReleaseProfiles.v2` | `PqcV2Engine` | `PqcV2Engine` | `pqc:v2`, `group:v2`, `attachment:v2` |
 | `PqcReleaseProfiles.v25` | `PqcV25Writer` | `PqcV2CompatibilityDecoder` | `pqc:v2`, `group:v2`, `attachment:v2` |
 | `PqcReleaseProfiles.v3` | `PqcV3Engine` | `PqcV2CompatibilityDecoder`, `PqcV3Engine` | `pqc:v3`, `group:v3`, `attachment:v3` |
 
-Always construct profiles with `PqcEngineBundles.v25()` or
-`PqcEngineBundles.v3()`. Both writers are closed by default. A host opens a
+Always construct profiles with `PqcEngineBundles.v2()`,
+`PqcEngineBundles.v25()` or `PqcEngineBundles.v3()`. All writers are closed
+by default. A host opens a
 writer only after its storage health, encrypted recovery synchronization and
 remote capability checks succeed.
 

@@ -26,6 +26,28 @@ class PqcEngineBundle {
 /// the host must explicitly opt in only after its recovery and capability
 /// checks are ready.
 abstract final class PqcEngineBundles {
+  /// Frozen V2 release assembly.
+  ///
+  /// This is retained for installations that intentionally continue writing
+  /// the immutable V2 wire format. Newer profiles must register it only as a
+  /// history decoder rather than silently selecting it as a fallback writer.
+  static PqcEngineBundle v2({
+    PqcPrimitiveSuite? primitives,
+    bool writerEnabled = false,
+  }) {
+    final writer = PqcV2Engine(primitives: primitives);
+    return PqcEngineBundle(
+      manager: PqcEngineManager(
+        decoders: [writer],
+        activeWriter: writer,
+        writerEnabled: writerEnabled,
+        releaseProfile: PqcReleaseProfiles.v2,
+      ),
+      writer: writer,
+      decoders: List.unmodifiable([writer]),
+    );
+  }
+
   static PqcEngineBundle v25({
     PqcPrimitiveSuite? primitives,
     bool writerEnabled = false,
